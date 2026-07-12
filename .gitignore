@@ -1,0 +1,19 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+
+# Personal settings + real canvas calibration coordinates + your local
+# image path — not something to publish alongside the source.
+config.json
+
+# Superseded by app.py/drawing.py/image_processing.py/calibration.py —
+# kept locally for reference, not published.
+main.py
+mouse_test.py
+
+# Personal test image + stale preview outputs from manual testing before
+# the app had a live in-memory preview.
+dragon.jpg
+edges.png
+contours.png

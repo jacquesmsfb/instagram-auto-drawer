@@ -1,0 +1,9 @@
+opencv-contrib-python>=4.9  # contrib build required for cv2.ximgproc.thinning
+pyautogui>=0.9.54,<1
+customtkinter>=5.2,<6
+pillow>=10.0
+numpy>=1.24
+
+# dev / test
+pytest>=8.0
+pyinstaller>=6.0; sys_platform == "darwin"
