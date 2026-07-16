@@ -127,6 +127,41 @@ def test_extract_contours_dedupe_reduces_total_points_on_line_art():
     assert total_points < 200  # sanity bound, well under a full there-and-back trace
 
 
+def test_extract_contours_keeps_straight_line_despite_zero_area():
+    # Regression test for the min_contour_area hairline bug: a perfectly
+    # straight synthetic line's forward/backward passes coincide exactly
+    # on integer pixel coordinates, giving cv2.contourArea == 0 — so the
+    # old plain `area < min_contour_area` filter discarded it whenever
+    # min_contour_area > 0, no matter how long the line was.
+    img = np.zeros((150, 150, 3), dtype=np.uint8)
+    cv2.line(img, (10, 10), (140, 140), (255, 255, 255), 1)
+    edges = cv2.Canny(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), 80, 150)
+
+    raw_contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
+    line_contour = max(raw_contours, key=len)
+    assert cv2.contourArea(line_contour) == 0  # confirms the bug's precondition
+    line_perimeter = cv2.arcLength(line_contour, True)
+
+    kept, _total, _skipped = ip.extract_contours(edges, min_contour_area=10, detail=0.003)
+    # The long diagonal stroke must survive — matched by arc length, since
+    # small Canny/thinning artifacts near the endpoints may also be found
+    # and correctly skipped as genuinely tiny, separate from this contour.
+    assert any(cv2.arcLength(c, False) > line_perimeter / 4 for c in kept)
+
+
+def test_extract_contours_still_filters_short_hairline_strokes():
+    # A short diagonal nub should still be dropped by a high min_contour_area
+    # — the fix filters hairline shapes by length instead of area, it
+    # doesn't stop filtering them altogether.
+    img = np.zeros((150, 150, 3), dtype=np.uint8)
+    cv2.line(img, (10, 10), (15, 15), (255, 255, 255), 1)
+    edges = cv2.Canny(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), 80, 150)
+
+    kept, _total, skipped = ip.extract_contours(edges, min_contour_area=100, detail=0.003)
+    assert len(kept) == 0
+    assert skipped >= 1
+
+
 def test_extract_contours_handles_blank_image():
     blank_edges = np.zeros((100, 100), dtype=np.uint8)
     kept, total_found, skipped = ip.extract_contours(blank_edges, min_contour_area=10, detail=0.003)

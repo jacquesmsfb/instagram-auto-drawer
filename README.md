@@ -8,13 +8,15 @@ Built with CustomTkinter, OpenCV, and PyAutoGUI.
 
 - **Image picker** with thumbnail preview (jpg, jpeg, png, bmp)
 - **One-time canvas calibration** — point at the top-left and bottom-right corners of your drawing canvas, the app remembers it
-- **Live edge/contour preview** as you tune sliders, debounced so it stays responsive
+- **Live edge/contour preview** as you tune sliders, debounced so it stays responsive — with a dedicated, larger detail panel you can scroll to zoom and drag to pan (double-click to reset), so you can actually see what a slider change did on a busy image
+- **Estimated drawing time** — logged as "~Xm Ys" as soon as you click Start Drawing, before the countdown hands control to the mouse
 - **Full drawing settings**: detail level, min contour area, Canny edge thresholds, Gaussian blur toggle, draw delay, mouse speed
 - **Background drawing** — the window stays fully responsive while drawing runs, since it never blocks the UI thread
 - **Pause / Resume and Stop**, both from buttons and global keybinds (works even if you're not focused on the app window)
 - **Emergency stop** via PyAutoGUI's FAILSAFE (drag mouse to a screen corner) — caught and logged cleanly instead of crashing
 - **macOS Accessibility permission check** — tells you clearly if the app can't control the mouse, instead of silently doing nothing
 - **Duplicate-line detection** — the pipeline finds and drops the redundant "return trip" `findContours` produces for open strokes (it always traces closed loops, so an open line gets traced forward then back over almost the same pixels). Cuts total draw points substantially, which also means faster overall drawing and less risk of the extra-long sessions that can crash Instagram's own drawing tool.
+- **Continuous strokes, fast** — the mouse button is held down for an entire contour (one press, N drags, one release) instead of clicking per point, and PyAutoGUI's per-call pause is disabled, so lines draw as continuous strokes instead of a dotted line, and drawing runs an order of magnitude faster.
 - **Settings + calibration persist** across restarts in `config.json`
 
 ## Pausing and stopping
@@ -56,6 +58,17 @@ python app.py
 
 On macOS, grant Accessibility permission the first time you calibrate or draw: **System Settings > Privacy & Security > Accessibility**, enable Terminal (or whichever app launched Python). Without this, PyAutoGUI silently can't move the mouse.
 
+### Double-click launcher (skip Terminal after setup)
+
+`Instagram Drawer.app` (gitignored — it's machine-specific, see below) is a
+minimal macOS app bundle that runs the app with `.venv`'s Python directly,
+so double-clicking it (or adding it to the Dock) never needs Terminal and
+never hits the gray-screen Tk 8.5 problem. Grant Accessibility permission to
+**this app**, not Terminal, the first time you calibrate or draw through it.
+It's not in git because its launch script hardcodes this machine's absolute
+path — on a fresh clone/machine, regenerate it (or just point a new one at
+your `.venv/bin/python3` and `app.py`) after Setup above.
+
 ## Usage
 
 1. **Choose Image** — pick a jpg/jpeg/png/bmp file.
@@ -89,4 +102,4 @@ python -m pytest tests/ -v
 
 ## Known limitations
 
-See [TODOS.md](TODOS.md) for deferred features and their rationale (zoomable preview, drag-and-drop image loading, estimated drawing time, multi-monitor/mixed-DPI calibration).
+See [TODOS.md](TODOS.md) for still-deferred features and their rationale (drag-and-drop image loading, multi-monitor/mixed-DPI calibration) and for what's already been done.

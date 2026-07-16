@@ -8,6 +8,7 @@ can be exercised in tests without a config object or a GUI.
 
 from __future__ import annotations
 
+import math
 from typing import List, Optional, Tuple
 
 import cv2
@@ -47,6 +48,37 @@ def resize_to_fit(img: np.ndarray, canvas_w: int, canvas_h: int) -> Tuple[np.nda
     return resized, offset_x, offset_y
 
 
+def resize_to_fill(img: np.ndarray, canvas_w: int, canvas_h: int) -> Tuple[np.ndarray, int, int]:
+    """Resize the image to completely fill (canvas_w, canvas_h), scaling up
+    until the shorter side (relative to the canvas) matches, then
+    center-cropping the overflow on the longer side.
+
+    Unlike resize_to_fit, none of the canvas goes unused as letterboxing —
+    every image ends up using the full drawing area, which means more
+    canvas-pixels (and so more traceable detail) for any image whose
+    aspect ratio doesn't already match the canvas's. The tradeoff: content
+    outside the crop is lost, so subjects near the edges of a very
+    differently-shaped image may get cut off.
+
+    Returns (resized_img, offset_x, offset_y) for API symmetry with
+    resize_to_fit — offset is always (0, 0) here since the result exactly
+    fills the canvas.
+    """
+    img_h, img_w = img.shape[:2]
+    scale = max(canvas_w / img_w, canvas_h / img_h)
+    # ceil (not round) guarantees the scaled image is never a pixel short
+    # of the canvas in either dimension, so the crop below always has
+    # enough pixels to slice from.
+    scaled_w = max(1, math.ceil(img_w * scale))
+    scaled_h = max(1, math.ceil(img_h * scale))
+    resized = cv2.resize(img, (scaled_w, scaled_h), interpolation=cv2.INTER_AREA)
+
+    crop_x = max(0, (scaled_w - canvas_w) // 2)
+    crop_y = max(0, (scaled_h - canvas_h) // 2)
+    cropped = resized[crop_y : crop_y + canvas_h, crop_x : crop_x + canvas_w]
+    return cropped, 0, 0
+
+
 def detect_edges(
     img: np.ndarray,
     canny_threshold_1: int,
@@ -74,6 +106,15 @@ def detect_edges(
 HAIRLINE_AREA_PERIMETER_RATIO = 1.5
 
 
+def _is_hairline_shaped(area: float, perimeter: float) -> bool:
+    """True if a contour's area is small relative to its perimeter — the
+    signature of cv2.findContours tracing an open stroke there-and-back
+    (see _dedupe_hairline) rather than a real enclosed shape. Shared by
+    the dedup step and the area filter in extract_contours, which both
+    need to tell open strokes apart from real shapes the same way."""
+    return perimeter > 0 and (area / perimeter) < HAIRLINE_AREA_PERIMETER_RATIO
+
+
 def _dedupe_hairline(contour: np.ndarray) -> np.ndarray:
     """Cut the redundant return trip out of an open-stroke contour.
 
@@ -92,10 +133,8 @@ def _dedupe_hairline(contour: np.ndarray) -> np.ndarray:
     if len(contour) < 4:
         return contour
     perimeter = cv2.arcLength(contour, True)
-    if perimeter <= 0:
-        return contour
     area = cv2.contourArea(contour)
-    if (area / perimeter) >= HAIRLINE_AREA_PERIMETER_RATIO:
+    if not _is_hairline_shaped(area, perimeter):
         return contour
     # Keep only the forward pass (start -> the far tip), drop the return trip.
     midpoint = len(contour) // 2 + 1
@@ -124,9 +163,21 @@ def extract_contours(
     skipped = 0
     for contour in contours:
         area = cv2.contourArea(contour)
-        if area < min_contour_area:
+        perimeter = cv2.arcLength(contour, True)
+
+        if _is_hairline_shaped(area, perimeter):
+            # An open stroke (findContours always returns closed loops)
+            # has near-zero area even when long and visually significant
+            # — a perfectly straight synthetic line hits exactly zero.
+            # Filter it by its actual one-way stroke length instead of an
+            # area it was never going to have.
+            if (perimeter / 2) < min_contour_area:
+                skipped += 1
+                continue
+        elif area < min_contour_area:
             skipped += 1
             continue
+
         epsilon = detail * cv2.arcLength(contour, False)
         simplified = cv2.approxPolyDP(contour, epsilon, False)
         if len(simplified) < 2:
@@ -167,13 +218,19 @@ def process_pipeline(
     gaussian_blur: bool,
     min_contour_area: float,
     detail: float,
+    fill_canvas: bool = False,
 ) -> PipelineResult:
     """Run the full pipeline: resize -> edges -> contours.
+
+    fill_canvas selects resize_to_fill (crop to use the whole canvas)
+    instead of the default resize_to_fit (show the whole image, letterboxed
+    if its aspect ratio doesn't match the canvas's).
 
     Edges are returned too so the GUI's Preview Edges button doesn't have
     to recompute them separately from Preview Contours.
     """
-    resized, offset_x, offset_y = resize_to_fit(img, canvas_w, canvas_h)
+    resize = resize_to_fill if fill_canvas else resize_to_fit
+    resized, offset_x, offset_y = resize(img, canvas_w, canvas_h)
     edges = detect_edges(resized, canny_threshold_1, canny_threshold_2, gaussian_blur)
     contours, total_found, skipped = extract_contours(edges, min_contour_area, detail)
     return PipelineResult(contours, offset_x, offset_y, edges, total_found, skipped)

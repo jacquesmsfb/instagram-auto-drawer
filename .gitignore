@@ -17,3 +17,8 @@ mouse_test.py
 dragon.jpg
 edges.png
 contours.png
+
+# Double-click launcher — hardcodes this machine's absolute repo path, so
+# it wouldn't work on a fresh clone. See README's Setup section.
+Instagram Drawer.app/
+launch.log

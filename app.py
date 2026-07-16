@@ -17,15 +17,32 @@ they are — the short version:
 from __future__ import annotations
 
 import queue
+import sys
 import threading
+import types
 from tkinter import filedialog
 from typing import Optional
 
+# PyAutoGUI imports mouseinfo for its interactive MouseInfo debugging tool,
+# which this app never uses (calibration.py/drawing.py only call
+# moveTo/dragTo/position/mouseDown/mouseUp/size/FAILSAFE). On this machine,
+# mouseinfo's rubicon-objc dependency raises "AttributeError: dlsym(...,
+# objc_msgSendSuper_stret): symbol not found" at import time specifically
+# when launched outside an interactive shell (e.g. double-clicking a .app
+# bundle instead of running from Terminal) — and PyAutoGUI's own fallback
+# only catches ImportError, not AttributeError, so that takes the whole
+# app down before a single window opens. Stub the module out before
+# anything imports pyautogui, so that import always succeeds trivially.
+if "mouseinfo" not in sys.modules:
+    sys.modules["mouseinfo"] = types.ModuleType("mouseinfo")
+
 import customtkinter as ctk
 import cv2
+import numpy as np
 from PIL import Image
 
 import calibration
+import drawing
 import image_processing
 from config import ConfigManager
 from drawing import DrawingThread
@@ -33,6 +50,17 @@ from drawing import DrawingThread
 PREVIEW_MAX_W, PREVIEW_MAX_H = 320, 320
 THUMB_SIZE = 96
 DEBOUNCE_MS = 180
+
+# Zoomable detail-preview panel (Preview Edges / Preview Contours output).
+# Separate from THUMB_SIZE, which is just the small "which file did I pick"
+# thumbnail in the Image section. Kept modest — this app runs on laptop
+# screens where vertical space is tight (see the geometry check in
+# __init__): zoom does the heavy lifting for checking detail, not raw
+# on-screen size.
+PREVIEW_PANEL_SIZE = 120
+PREVIEW_MIN_ZOOM = 1.0
+PREVIEW_MAX_ZOOM = 6.0
+PREVIEW_ZOOM_STEP = 1.25
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
@@ -42,7 +70,7 @@ class App(ctk.CTk):
     def __init__(self) -> None:
         super().__init__()
         self.title("Instagram Auto Drawer")
-        self.geometry("760x780")
+        self.geometry("810x820")
 
         self.config_manager = ConfigManager(log=self._log_safe)
 
@@ -56,6 +84,13 @@ class App(ctk.CTk):
         self.calibration_queue: "queue.Queue" = queue.Queue()
 
         self._debounce_id: Optional[str] = None
+
+        # Zoomable detail-preview state — see _render_zoomed_preview.
+        self._preview_source: Optional[np.ndarray] = None
+        self._preview_zoom = PREVIEW_MIN_ZOOM
+        self._preview_pan = (0.5, 0.5)  # fractional center within the source image
+        self._preview_drag_start: Optional[tuple] = None
+        self._preview_pan_start: Optional[tuple] = None
 
         self._build_ui()
         self._restore_from_config()
@@ -82,6 +117,7 @@ class App(ctk.CTk):
 
         self._build_settings_section()
         self._build_button_row()
+        self._build_preview_section()
         self._build_console_section()
 
     def _build_image_section(self, parent) -> None:
@@ -158,6 +194,14 @@ class App(ctk.CTk):
             command=lambda: self._on_setting_changed("gaussian_blur", self.blur_var.get()),
         ).grid(row=4, column=0, columnspan=2, sticky="w", padx=10, pady=(0, 10))
 
+        self.fill_canvas_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            frame,
+            text="Fill Canvas (crop to fit)",
+            variable=self.fill_canvas_var,
+            command=lambda: self._on_setting_changed("fill_canvas", self.fill_canvas_var.get()),
+        ).grid(row=4, column=2, columnspan=2, sticky="w", padx=10, pady=(0, 10))
+
     def _build_button_row(self) -> None:
         frame = ctk.CTkFrame(self, fg_color="transparent")
         frame.grid(row=2, column=0, padx=12, pady=6, sticky="ew")
@@ -182,16 +226,55 @@ class App(ctk.CTk):
         )
         self.stop_btn.pack(side="right", padx=6)
 
+    def _build_preview_section(self) -> None:
+        frame = ctk.CTkFrame(self)
+        frame.grid(row=3, column=0, padx=12, pady=4, sticky="ew")
+
+        header = ctk.CTkFrame(frame, fg_color="transparent")
+        header.pack(fill="x", padx=10, pady=(6, 0))
+        ctk.CTkLabel(header, text="Preview", font=ctk.CTkFont(weight="bold")).pack(side="left")
+        ctk.CTkLabel(
+            header,
+            text="  ·  scroll to zoom, drag to pan, double-click to reset",
+            text_color="gray60",
+            font=ctk.CTkFont(size=11),
+        ).pack(side="left")
+
+        self.detail_preview_label = ctk.CTkLabel(
+            frame,
+            text="Click Preview Edges / Preview Contours to see detail here",
+            width=PREVIEW_PANEL_SIZE,
+            height=PREVIEW_PANEL_SIZE,
+        )
+        self.detail_preview_label.pack(padx=10, pady=(6, 8))
+
+        # Bound at the application level (bind_all), not on the label/canvas
+        # sub-widgets CTkLabel composes internally — those didn't reliably
+        # receive real trackpad/mouse events in practice. bind_all catches
+        # the event regardless of which internal widget the OS thinks the
+        # cursor is over; each handler below gates on whether the cursor
+        # was actually within the preview panel's screen rectangle, so it
+        # doesn't interfere with scrolling/clicking elsewhere in the window.
+        self.bind_all("<MouseWheel>", self._on_preview_scroll)
+        self.bind_all("<ButtonPress-1>", self._on_preview_drag_start, add="+")
+        self.bind_all("<B1-Motion>", self._on_preview_drag_move, add="+")
+        self.bind_all("<Double-Button-1>", self._on_preview_reset_zoom, add="+")
+
+    def _point_in_preview_panel(self, x_root: int, y_root: int) -> bool:
+        lbl = self.detail_preview_label
+        x0, y0 = lbl.winfo_rootx(), lbl.winfo_rooty()
+        return x0 <= x_root <= x0 + lbl.winfo_width() and y0 <= y_root <= y0 + lbl.winfo_height()
+
     def _build_console_section(self) -> None:
         frame = ctk.CTkFrame(self)
-        frame.grid(row=3, column=0, padx=12, pady=(6, 12), sticky="nsew")
-        self.grid_rowconfigure(3, weight=1)
+        frame.grid(row=4, column=0, padx=12, pady=(6, 12), sticky="nsew")
+        self.grid_rowconfigure(4, weight=1)
 
         self.progress_bar = ctk.CTkProgressBar(frame)
         self.progress_bar.set(0)
         self.progress_bar.pack(fill="x", padx=10, pady=(10, 6))
 
-        self.console = ctk.CTkTextbox(frame, height=180, font=ctk.CTkFont(family="Menlo", size=12))
+        self.console = ctk.CTkTextbox(frame, height=110, font=ctk.CTkFont(family="Menlo", size=12))
         self.console.pack(fill="both", expand=True, padx=10, pady=(0, 10))
         self.console.configure(state="disabled")
 
@@ -327,20 +410,23 @@ class App(ctk.CTk):
             bool(self.config_manager.get("gaussian_blur")),
             float(self.config_manager.get("min_contour_area")),
             float(self.config_manager.get("detail")),
+            bool(self.config_manager.get("fill_canvas")),
         )
 
     def show_edges_preview(self) -> None:
         result = self._run_preview_pipeline()
         if result is None:
             return
+        is_new_mode = self.preview_mode != "edges"
         self.preview_mode = "edges"
         edges_rgb = cv2.cvtColor(result.edges, cv2.COLOR_GRAY2RGB)
-        self._render_preview_image(edges_rgb)
+        self._set_preview_source(edges_rgb, reset_view=is_new_mode)
 
     def show_contours_preview(self) -> None:
         result = self._run_preview_pipeline()
         if result is None:
             return
+        is_new_mode = self.preview_mode != "contours"
         self.preview_mode = "contours"
         canvas = cv2.cvtColor(result.edges, cv2.COLOR_GRAY2RGB)
         canvas[:] = 0
@@ -348,14 +434,92 @@ class App(ctk.CTk):
         self.log(f"Found {result.total_found} contours")
         if result.skipped:
             self.log(f"Skipping {result.skipped} small contours")
-        self._render_preview_image(canvas)
+        self._set_preview_source(canvas, reset_view=is_new_mode)
 
-    def _render_preview_image(self, rgb_array) -> None:
-        pil_img = Image.fromarray(rgb_array)
-        pil_img.thumbnail((THUMB_SIZE, THUMB_SIZE))
-        ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=pil_img.size)
-        self.thumbnail_label.configure(image=ctk_img, text="")
-        self.thumbnail_label.image = ctk_img
+    # ------------------------------------------------------ zoomable preview
+
+    def _set_preview_source(self, rgb_array: np.ndarray, reset_view: bool = True) -> None:
+        """Swap in a new source image for the detail preview panel.
+
+        reset_view=False keeps the current zoom/pan across a live slider
+        refresh of the *same* preview mode — so tuning a threshold slider
+        while zoomed into a busy region doesn't snap back out to fully
+        zoomed-out on every tick. A genuine mode switch (edges<->contours,
+        or a newly chosen image) starts fresh instead.
+        """
+        self._preview_source = rgb_array
+        if reset_view:
+            self._preview_zoom = PREVIEW_MIN_ZOOM
+            self._preview_pan = (0.5, 0.5)
+        self._render_zoomed_preview()
+
+    def _render_zoomed_preview(self) -> None:
+        if self._preview_source is None:
+            return
+        src_h, src_w = self._preview_source.shape[:2]
+        crop_w = max(1, min(src_w, int(round(src_w / self._preview_zoom))))
+        crop_h = max(1, min(src_h, int(round(src_h / self._preview_zoom))))
+        center_x = self._preview_pan[0] * src_w
+        center_y = self._preview_pan[1] * src_h
+        x0 = int(round(center_x - crop_w / 2))
+        y0 = int(round(center_y - crop_h / 2))
+        x0 = max(0, min(x0, src_w - crop_w))
+        y0 = max(0, min(y0, src_h - crop_h))
+        cropped = self._preview_source[y0 : y0 + crop_h, x0 : x0 + crop_w]
+
+        pil_img = Image.fromarray(cropped)
+        # NEAREST once zoomed in, so users see actual pixels/contour
+        # segments instead of a blurred resample when checking fine detail.
+        resample = Image.NEAREST if self._preview_zoom > 1 else Image.LANCZOS
+        pil_img = pil_img.resize((PREVIEW_PANEL_SIZE, PREVIEW_PANEL_SIZE), resample)
+        ctk_img = ctk.CTkImage(
+            light_image=pil_img, dark_image=pil_img, size=(PREVIEW_PANEL_SIZE, PREVIEW_PANEL_SIZE)
+        )
+        self.detail_preview_label.configure(image=ctk_img, text="")
+        self.detail_preview_label.image = ctk_img
+
+    def _on_preview_scroll(self, event) -> None:
+        if self._preview_source is None:
+            return
+        if not self._point_in_preview_panel(event.x_root, event.y_root):
+            return
+        direction = 1 if event.delta > 0 else -1
+        new_zoom = self._preview_zoom * (PREVIEW_ZOOM_STEP**direction)
+        self._preview_zoom = max(PREVIEW_MIN_ZOOM, min(PREVIEW_MAX_ZOOM, new_zoom))
+        self._render_zoomed_preview()
+
+    def _on_preview_drag_start(self, event) -> None:
+        # Gated here (drag START only) — once a drag is under way, motion
+        # keeps tracking even if the cursor briefly overshoots the panel's
+        # edge, same as any normal drag interaction.
+        if not self._point_in_preview_panel(event.x_root, event.y_root):
+            self._preview_drag_start = None
+            return
+        self._preview_drag_start = (event.x_root, event.y_root)
+        self._preview_pan_start = self._preview_pan
+
+    def _on_preview_drag_move(self, event) -> None:
+        if self._preview_source is None or self._preview_drag_start is None:
+            return
+        dx = event.x_root - self._preview_drag_start[0]
+        dy = event.y_root - self._preview_drag_start[1]
+        # Dragging the content right should reveal what's to its left, so
+        # the pan center moves opposite the drag direction.
+        pan_dx = -dx / PREVIEW_PANEL_SIZE / self._preview_zoom
+        pan_dy = -dy / PREVIEW_PANEL_SIZE / self._preview_zoom
+        start_x, start_y = self._preview_pan_start
+        self._preview_pan = (
+            max(0.0, min(1.0, start_x + pan_dx)),
+            max(0.0, min(1.0, start_y + pan_dy)),
+        )
+        self._render_zoomed_preview()
+
+    def _on_preview_reset_zoom(self, event=None) -> None:
+        if event is not None and not self._point_in_preview_panel(event.x_root, event.y_root):
+            return
+        self._preview_zoom = PREVIEW_MIN_ZOOM
+        self._preview_pan = (0.5, 0.5)
+        self._render_zoomed_preview()
 
     # ------------------------------------------------------------ drawing
 
@@ -381,15 +545,19 @@ class App(ctk.CTk):
         self.log(f"Found {result.total_found} contours")
         if result.skipped:
             self.log(f"Skipping {result.skipped} small contours")
+        mouse_speed = float(self.config_manager.get("mouse_speed"))
+        draw_delay = int(self.config_manager.get("draw_delay"))
+        estimate_s = drawing.estimate_drawing_seconds(result.contours, mouse_speed, draw_delay)
+        self.log(f"Estimated drawing time: {drawing.format_duration(estimate_s)}")
 
         self.drawing_queue = queue.Queue()
         self.drawing_thread = DrawingThread(
             result.contours,
             top_left,
             (result.offset_x, result.offset_y),
-            float(self.config_manager.get("mouse_speed")),
+            mouse_speed,
             self.drawing_queue,
-            draw_delay=int(self.config_manager.get("draw_delay")),
+            draw_delay=draw_delay,
         )
         self._total_contours = len(result.contours)
         self.progress_bar.set(0)

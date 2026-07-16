@@ -1,0 +1,72 @@
+{
+  "app.py": {
+    "mtime": 1784204971.3395524,
+    "ast_hash": "6460a5743db7857ea20b8d0ba07ac995",
+    "semantic_hash": "6460a5743db7857ea20b8d0ba07ac995"
+  },
+  "calibration.py": {
+    "mtime": 1783777674.8154302,
+    "ast_hash": "a696122f15609927201f8b037cdc1ae6",
+    "semantic_hash": "a696122f15609927201f8b037cdc1ae6"
+  },
+  "config.py": {
+    "mtime": 1783777610.764444,
+    "ast_hash": "68514499b9f0ed4b80052d2e414a9101",
+    "semantic_hash": "68514499b9f0ed4b80052d2e414a9101"
+  },
+  "drawing.py": {
+    "mtime": 1784204333.9087985,
+    "ast_hash": "4ae59219560f6bc56def917d515cea00",
+    "semantic_hash": "4ae59219560f6bc56def917d515cea00"
+  },
+  "image_processing.py": {
+    "mtime": 1784204333.9090593,
+    "ast_hash": "f5df3995080857c0ec97197cff0a91d3",
+    "semantic_hash": "f5df3995080857c0ec97197cff0a91d3"
+  },
+  "tests/__init__.py": {
+    "mtime": 1783777903.2701826,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "tests/test_calibration.py": {
+    "mtime": 1783777936.093751,
+    "ast_hash": "0467c196323e905e5a32837184c047a9",
+    "semantic_hash": "0467c196323e905e5a32837184c047a9"
+  },
+  "tests/test_config.py": {
+    "mtime": 1783777910.5742884,
+    "ast_hash": "cabbf7fe13695ce78b7b7264d03176a4",
+    "semantic_hash": "cabbf7fe13695ce78b7b7264d03176a4"
+  },
+  "tests/test_drawing.py": {
+    "mtime": 1784204333.9093547,
+    "ast_hash": "8e826df2d318d259cf7b4e32df97a961",
+    "semantic_hash": "8e826df2d318d259cf7b4e32df97a961"
+  },
+  "tests/test_image_processing.py": {
+    "mtime": 1784204372.9225967,
+    "ast_hash": "c76340e47441e252be9c315255b10692",
+    "semantic_hash": "c76340e47441e252be9c315255b10692"
+  },
+  "utils.py": {
+    "mtime": 1783777621.4578173,
+    "ast_hash": "a644a373200d629c91ee7764d73beb8c",
+    "semantic_hash": "a644a373200d629c91ee7764d73beb8c"
+  },
+  "README.md": {
+    "mtime": 1784205040.1133964,
+    "ast_hash": "a9c93bad32daf11fa3aa7cb7c00c7a72",
+    "semantic_hash": "a9c93bad32daf11fa3aa7cb7c00c7a72"
+  },
+  "TODOS.md": {
+    "mtime": 1784204613.6553297,
+    "ast_hash": "c176404a4c728a63fb7fee5feabe41c8",
+    "semantic_hash": "c176404a4c728a63fb7fee5feabe41c8"
+  },
+  "requirements.txt": {
+    "mtime": 1783780726.0466568,
+    "ast_hash": "51ecc39cb7b04fc6d572b7fc6623e181",
+    "semantic_hash": "51ecc39cb7b04fc6d572b7fc6623e181"
+  }
+}

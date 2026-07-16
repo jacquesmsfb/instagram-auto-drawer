@@ -2,19 +2,12 @@
 
 Deferred bonus features from the initial `/plan-eng-review` of the Instagram Auto Drawer GUI (2026-07-11). Core app ships without these; revisit if the plain version proves limiting.
 
-## Zoomable preview
+## Done (2026-07-16)
 
-**What:** Let the user pinch/scroll-zoom the image thumbnail/edge preview instead of a fixed-size static thumbnail.
-
-**Why:** Useful for checking fine detail on high-resolution source images before committing to a draw, but the core workflow (choose image → calibrate → draw) works fine without it.
-
-**Pros:** Better feedback on detail-slider tuning for busy images; nicer UX overall.
-
-**Cons:** Needs pan/zoom state management and coordinate remapping between preview-space and image-space — real complexity for a feature that's pure convenience.
-
-**Context:** Would live in a new preview widget wrapping whatever CustomTkinter/Tkinter image widget renders the thumbnail. Coordinate remapping matters because click-to-inspect (if ever added) would need to map preview pixel → original image pixel through both the zoom transform and the resize-to-canvas transform.
-
-**Depends on:** Nothing blocking — can be added independently once the base preview exists.
+- **Zoomable preview** — a dedicated, larger "Preview" panel now shows Preview Edges / Preview Contours output with scroll-to-zoom and drag-to-pan (double-click to reset). See `App._render_zoomed_preview` and friends in `app.py`.
+- **Estimated drawing time before starting** — `drawing.estimate_drawing_seconds` / `format_duration`, logged as "Estimated drawing time: ~Xm Ys" when Start Drawing is clicked.
+- **`min_contour_area` hairline bug** — `extract_contours` now filters hairline-shaped contours (open strokes) by stroke length instead of area, so straight vector-style lines with exactly-zero area no longer get discarded outright.
+- **Drawing speed + quality**: `pyautogui.PAUSE` was left at its 0.1s default, adding ~0.2s of dead sleep per contour point (dwarfing the `mouse_speed` setting). Fixed to 0. Separately, `dragTo()`'s default `mouseDownUp=True` pressed and released the mouse button on every single point instead of holding it for the whole stroke, which was very likely the cause of "bad drawings" (broken/dotted lines) — fixed by holding the button down for each whole contour (see `draw_contours` in `drawing.py`).
 
 ## Drag-and-drop image support
 

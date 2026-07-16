@@ -22,6 +22,7 @@ DEFAULTS: dict[str, Any] = {
     "canny_threshold_1": 80,
     "canny_threshold_2": 150,
     "gaussian_blur": True,
+    "fill_canvas": False,  # crop image to fill the whole canvas instead of letterboxing
     "draw_delay": 5,
     "mouse_speed": 0.001,  # seconds per drag point, matches main.py's duration
 }
