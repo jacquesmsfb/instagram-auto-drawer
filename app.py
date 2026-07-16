@@ -541,6 +541,7 @@ class App(ctk.CTk):
             bool(self.config_manager.get("gaussian_blur")),
             float(self.config_manager.get("min_contour_area")),
             float(self.config_manager.get("detail")),
+            bool(self.config_manager.get("fill_canvas")),
         )
         self.log(f"Found {result.total_found} contours")
         if result.skipped:
@@ -620,6 +621,8 @@ class App(ctk.CTk):
             self.config_manager.set(key, default, save=False)
         self.blur_var.set(DEFAULTS["gaussian_blur"])
         self.config_manager.set("gaussian_blur", DEFAULTS["gaussian_blur"])
+        self.fill_canvas_var.set(DEFAULTS["fill_canvas"])
+        self.config_manager.set("fill_canvas", DEFAULTS["fill_canvas"])
         self._refresh_current_preview()
 
     # -------------------------------------------------------------- state
@@ -655,6 +658,7 @@ class App(ctk.CTk):
             slider.set(value)
             label_widget.configure(text=f"{label_text}: {self._fmt(key, value)}")
         self.blur_var.set(bool(self.config_manager.get("gaussian_blur")))
+        self.fill_canvas_var.set(bool(self.config_manager.get("fill_canvas")))
         self._update_calibration_label()
 
         last_path = self.config_manager.get("last_image_path")

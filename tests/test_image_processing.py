@@ -55,6 +55,35 @@ def test_resize_to_fit_preserves_aspect_ratio_tall_canvas():
     assert offset_y + h <= 300
 
 
+def test_resize_to_fill_exactly_matches_canvas_dims():
+    img = np.zeros((100, 50, 3), dtype=np.uint8)  # tall image (h=100, w=50)
+    resized, offset_x, offset_y = ip.resize_to_fill(img, canvas_w=300, canvas_h=100)
+    h, w = resized.shape[:2]
+    # unlike resize_to_fit, the result exactly fills the canvas - no letterboxing
+    assert (w, h) == (300, 100)
+    assert (offset_x, offset_y) == (0, 0)
+
+
+def test_resize_to_fill_crops_instead_of_letterboxing():
+    img = np.zeros((50, 100, 3), dtype=np.uint8)  # wide image (h=50, w=100)
+    resized, offset_x, offset_y = ip.resize_to_fill(img, canvas_w=100, canvas_h=100)
+    h, w = resized.shape[:2]
+    assert (w, h) == (100, 100)
+    assert (offset_x, offset_y) == (0, 0)
+
+
+def test_process_pipeline_fill_canvas_uses_resize_to_fill():
+    img = make_square_image()
+    result = ip.process_pipeline(
+        img, canvas_w=150, canvas_h=300,
+        canny_threshold_1=80, canny_threshold_2=150, gaussian_blur=True,
+        min_contour_area=5, detail=0.003, fill_canvas=True,
+    )
+    # fill_canvas always fully fills the canvas -> edges match canvas dims exactly
+    assert result.edges.shape[:2] == (300, 150)
+    assert (result.offset_x, result.offset_y) == (0, 0)
+
+
 def test_detect_edges_runs_with_and_without_blur():
     img = make_square_image()
     edges_blurred = ip.detect_edges(img, 80, 150, gaussian_blur=True)
