@@ -137,6 +137,32 @@ def test_dedupe_hairline_leaves_real_shapes_untouched():
     assert len(deduped) == len(square_contour)
 
 
+def test_dedupe_hairline_leaves_branching_shape_whole():
+    # Regression test: a Y-junction (three strokes meeting at one point) is
+    # a real branching shape, not a simple line traced there-and-back —
+    # cv2.findContours walks all the way around the connected skeleton, so
+    # its "first half" and "second half" are two genuinely different paths,
+    # not a mirrored retrace. It can still score as "hairline" by area /
+    # perimeter (thin lines have little enclosed area), so without a check
+    # that the two halves actually match, this contour used to get cut at
+    # the midpoint — silently discarding one whole branch of real detail.
+    img = np.zeros((150, 150, 3), dtype=np.uint8)
+    center = (75, 75)
+    cv2.line(img, center, (75, 20), (255, 255, 255), 1)
+    cv2.line(img, center, (30, 120), (255, 255, 255), 1)
+    cv2.line(img, center, (120, 120), (255, 255, 255), 1)
+    edges = cv2.ximgproc.thinning(cv2.Canny(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), 80, 150))
+    contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
+
+    branching = next(
+        c for c in contours
+        if ip._is_hairline_shaped(cv2.contourArea(c), cv2.arcLength(c, True))
+        and not ip._is_true_there_and_back(c)
+    )
+    deduped = ip._dedupe_hairline(branching)
+    assert len(deduped) == len(branching)
+
+
 def test_extract_contours_dedupe_reduces_total_points_on_line_art():
     img = np.zeros((150, 150, 3), dtype=np.uint8)
     cv2.line(img, (10, 10), (140, 140), (255, 255, 255), 1)  # open diagonal stroke

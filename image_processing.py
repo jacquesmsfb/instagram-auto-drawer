@@ -115,6 +115,39 @@ def _is_hairline_shaped(area: float, perimeter: float) -> bool:
     return perimeter > 0 and (area / perimeter) < HAIRLINE_AREA_PERIMETER_RATIO
 
 
+# Max average per-point pixel distance between a hairline contour's first
+# half and its (reversed) second half for the there-and-back assumption
+# below to actually hold. On a clean synthetic line the two halves mirror
+# each other almost exactly (sub-pixel noise only). On real photo edges,
+# cv2.findContours often traces all the way around a whole connected,
+# BRANCHING skeleton region (Y/T-junctions, crossings) rather than a
+# simple line's out-and-back — a contour like that can still score as
+# "hairline" by area/perimeter, but its first and second halves are two
+# genuinely different paths, not a mirrored retrace. Measured on a real
+# image: mismatched halves diverge by 5-35+ pixels; true retraces stay
+# under ~1px. This tolerance sits well above real noise, well below a
+# real mismatch.
+HAIRLINE_SYMMETRY_TOLERANCE_PX = 3.0
+
+
+def _is_true_there_and_back(contour: np.ndarray) -> bool:
+    """Check the assumption _dedupe_hairline relies on: does the second
+    half of this contour actually walk back along the first half (so
+    truncating it only removes a redundant retrace), or do the two halves
+    diverge (so this is really a more complex/branching shape that merely
+    LOOKS hairline by the area/perimeter ratio, and truncating it would
+    silently discard real, unique detail)?"""
+    n = len(contour)
+    midpoint = n // 2 + 1
+    forward = contour[:midpoint, 0, :].astype(float)
+    backward = contour[midpoint:, 0, :][::-1].astype(float)
+    overlap = min(len(forward), len(backward))
+    if overlap == 0:
+        return True
+    diffs = np.linalg.norm(forward[:overlap] - backward[:overlap], axis=1)
+    return bool(diffs.mean() <= HAIRLINE_SYMMETRY_TOLERANCE_PX)
+
+
 def _dedupe_hairline(contour: np.ndarray) -> np.ndarray:
     """Cut the redundant return trip out of an open-stroke contour.
 
@@ -128,13 +161,18 @@ def _dedupe_hairline(contour: np.ndarray) -> np.ndarray:
     blob's full-perimeter contour has genuine area and should stay whole).
 
     Real closed shapes are returned unchanged — going around their
-    outline once isn't wasted motion, it's the actual shape.
+    outline once isn't wasted motion, it's the actual shape. So is
+    anything that merely looks hairline but isn't actually a simple
+    there-and-back retrace (see _is_true_there_and_back) — truncating
+    those would cut off real content, not a redundant retrace.
     """
     if len(contour) < 4:
         return contour
     perimeter = cv2.arcLength(contour, True)
     area = cv2.contourArea(contour)
     if not _is_hairline_shaped(area, perimeter):
+        return contour
+    if not _is_true_there_and_back(contour):
         return contour
     # Keep only the forward pass (start -> the far tip), drop the return trip.
     midpoint = len(contour) // 2 + 1
