@@ -5,7 +5,9 @@ A desktop GUI for turning any image into contour-traced mouse drawing on Instagr
 Built with CustomTkinter, OpenCV, and PyAutoGUI.
 
 # Examples
-<img width="1170" height="2532" alt="IMG_8634" src="https://github.com/user-attachments/assets/6a4c0ebc-3177-4991-a8c4-63c0e37337a6" />
+<img width="500" height="500" alt="IMG_8634" src="https://github.com/user-attachments/assets/6a4c0ebc-3177-4991-a8c4-63c0e37337a6" />
+<img width="500" height="500" alt="IMG_8635" src="https://github.com/user-attachments/assets/d882e032-9581-4bce-b37f-5078770661d2" />
+<img width="500" height="500" alt="IMG_8636" src="https://github.com/user-attachments/assets/fd1fb98b-f8db-467f-b784-cb97b641d927" />
 
 ## Features
 
